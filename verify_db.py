@@ -1,49 +1,42 @@
-import pg8000.native
-import pandas as pd
+import psycopg2
 
-# --- CONFIGURATION ---
-DB_HOST = "ev-charging-db.postgres.database.azure.com"
-DB_NAME = "postgres"
-DB_USER = "evadmin"
-DB_PASS = "Tlotlo22tt#"
+print("Connecting to Docker Database...")
 
-def verify_database():
-    print("🔎 Connecting to Database for Audit...")
-    
-    try:
-        conn = pg8000.native.Connection(
-            user=DB_USER, password=DB_PASS, host=DB_HOST, database=DB_NAME, ssl_context=True
-        )
+# Connects to the Postgres container exposed on your computer's port 5432
+# Change your DB_DSN line to look exactly like this:
+DB_DSN = "postgresql://postgres:Tlotlo@127.0.0.1:5433/ev_charging"
 
-        # --- TEST 1: VERIFY DATA TYPES ---
-        print("\n📋 TEST 1: TABLE SCHEMA (Data Types)")
-        # This query asks the database itself "What types are these columns?"
-        schema_query = """
-        SELECT column_name, data_type 
-        FROM information_schema.columns 
-        WHERE table_name = 'chargers'
-        ORDER BY ordinal_position;
-        """
-        schema_results = conn.run(schema_query)
-        df_schema = pd.DataFrame(schema_results, columns=["Column Name", "Data Type"])
-        print(df_schema.to_string(index=False))
+try:
+    conn = psycopg2.connect(DB_DSN)
+    cur = conn.cursor()
 
-        # --- TEST 2: VERIFY INSERTED DATA ---
-        print("\n📊 TEST 2: ACTUAL DATA")
-        data_query = "SELECT charger_id, location_name, power_kw, cost_per_kwh, status FROM chargers ORDER BY charger_id"
-        data_results = conn.run(data_query)
-        
-        if data_results:
-            df_data = pd.DataFrame(data_results, columns=["ID", "Location", "Power (kW)", "Cost (R/kWh)", "Status"])
-            print(df_data.to_string(index=False))
-        else:
-            print("⚠️ Table is empty!")
+    # 1. Create the Charger Table
+    cur.execute('''
+    CREATE TABLE IF NOT EXISTS charger (
+        charger_id VARCHAR(50) PRIMARY KEY,
+        status VARCHAR(20) NOT NULL
+    )
+    ''')
 
-        conn.close()
-        print("\n✅ Verification Complete.")
+    # 2. Create the Sessions Table
+    cur.execute('''
+    CREATE TABLE IF NOT EXISTS charging_sessions (
+        session_id SERIAL PRIMARY KEY,
+        charger_id VARCHAR(50),
+        user_phone VARCHAR(20),
+        status VARCHAR(20),
+        start_time TIMESTAMP,
+        end_time TIMESTAMP,
+        kwh_delivered FLOAT DEFAULT 0.0
+    )
+    ''')
 
-    except Exception as e:
-        print(f"❌ Error: {e}")
+    # 3. Insert your first charger
+    cur.execute("INSERT INTO charger (charger_id, status) VALUES ('ZA-ABB-001', 'AVAILABLE') ON CONFLICT DO NOTHING")
 
-if __name__ == "__main__":
-    verify_database()
+    conn.commit()
+    conn.close()
+    print("✅ Database successfully populated with tables and ZA-ABB-001!")
+
+except Exception as e:
+    print(f"❌ Database error: {e}")
